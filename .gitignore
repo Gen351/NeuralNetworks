@@ -1,6 +1,18 @@
 #Datasets
-/dataset
+dataset/
 
 # Trained Nets
-/trained_networks
-/best_nets
+trained_networks/
+best_nets/
+evolved_networks/
+
+
+# Dev Notes
+dev/
+
+# Compiled Bins
+*.exe
+
+# Gui Shiz
+snakes/with_gui/
+
