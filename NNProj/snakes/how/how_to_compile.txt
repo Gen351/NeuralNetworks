@@ -1,0 +1,26 @@
+- How to compile and run training
+
+-- Compile (from snakes/): 
+    (test):
+        g++ -std=c++17 -DNDEBUG -O3 test.cpp -o test
+    (train):
+        g++.exe -std=c++17 -DNDEBUG -O3 -pthread main.cpp -o run
+
+-- Run (from snakes/):
+    (test):
+        ./test <model_path_relative_to_snakes/>
+    (from snakes/):
+        ./train <ARGS> <ARGS> <ARGS> <ARGS>
+
+
+- What you'll see: one line per generation, e.g.:
+
+$ > Gen 30 | Best Fitness: -7e-05 | Curr Fitness: -0.00022 | Best Score: 1 | Curr Score: 1
+$ > Saving...
+$ > Saved: trained_networks/run_1
+
+
+- Every <N> gens (batch_save) it saves to 
+    trained_networks/run_<N>/: best.simple_net
+        , current.simple_net (for resume/early-stop)
+        , and performance.txt (fitness, gen, score, game-over screenshots of best and current).

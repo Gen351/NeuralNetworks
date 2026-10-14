@@ -1,0 +1,30 @@
+- How to compile and run training
+
+-- Compile (from snakesV2/):
+    (test):
+        g++ -std=c++17 -DNDEBUG -O3 test.cpp -o test
+    (train):
+        g++.exe -std=c++17 -DNDEBUG -O3 -pthread main.cpp -o train
+    (visualize):
+        g++ -std=c++17 -DNDEBUG -O3 visualize_layer.cpp -o visualize_layer
+
+-- Run (from snakesV2/):
+    (test):
+        ./test <model_path_relative_to_snakesV2/> [speed_ms] [board_sz] <show?(0:1)>
+    (from snakesV2/):
+        ./train <ARGS> <ARGS> <ARGS> <ARGS>
+    NOTE: V2 nets are board-size locked (input = board_size^2). Test with the
+    same BOARD_SIZE the net was trained on. V1 24-ray nets cannot load on V2.
+
+
+- What you'll see: one line per generation, e.g.:
+
+$ > Gen 30 | Best Fitness: -7e-05 | Curr Fitness: -0.00022 | Best Score: 1 | Curr Score: 1
+$ > Saving...
+$ > Saved: trained_networks/run_1
+
+
+- Every <N> gens (batch_save) it saves to 
+    trained_networks/run_<N>/: best.simple_net
+        , current.simple_net (for resume/early-stop)
+        , and performance.txt (fitness, gen, score, game-over screenshots of best and current).

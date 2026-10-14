@@ -1,0 +1,154 @@
+- How to compile and run the chess engine
+
+-- Compile (from chess/):
+        g++ -std=c++17 -DNDEBUG -O3 -pthread uci_main.cpp -o chess_engine
+    (AVX2 build -- same engine, SIMD quantized-NNUE eval; requires AVX2 CPU):
+        g++ -std=c++17 -DNDEBUG -O3 -mavx2 -pthread uci_main.cpp -o chess_engine
+    (optional FMA for the downstream float dense: add -mfma)
+
+-- Run (from chess/):
+    (UCI engine mode -- what you use with a GUI / for playing):
+        ./chess_engine
+    (with your neural net as evaluator):
+        ./chess_engine --net ../trained_networks/run_1/best.backprop_net
+    (perft -- move-generation speed/correctness check):
+        ./chess_engine --perft 5
+        ./chess_engine --perft 4 "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1"
+    (self-test -- zobrist consistency + perft suite + quick self-game):
+        ./chess_engine --selftest
+
+
+- How to compile and run the trainer (PST-distillation -> your .backprop_net):
+
+-- Compile (from chess/):
+        g++ -std=c++17 -DNDEBUG -O3 -pthread train.cpp -o chess_trainer
+
+-- Run:
+    train a fresh net (writes trained_networks/run_N/net.backprop_net + performance.txt):
+        ./chess_trainer SAMPLES=50000 EPOCHS=40 BATCH=32
+    resume/finetune an existing net (e.g. Lichess evals later):
+        ./chess_trainer CONTINUE=trained_networks/run_1/net.backprop_net EPOCHS=10 LR=0.0003
+    finetune on a Lichess-eval CSV dump (see howto/createAI.md for the format):
+        ./chess_trainer DATASET=dataset/200k_blitz_rapid_classical_bullet.csv ^
+                        CONTINUE=trained_networks/run_1/net.backprop_net ^
+                        SAMPLES=1000000 EPOCHS=8 LR=0.0005
+    sanity probes on a trained net (startpos ~ 0, queen-up positive, mirror flips sign):
+        ./chess_trainer --probe NET=trained_networks/run_1/net.backprop_net
+
+    Tunables: SAMPLES EPOCHS BATCH LR PATIENCE CLAMP PST_SCALE SEED MIRROR CAPTURE_BIAS
+              MAX_PLIES DATASET SKIP_MATES OUT WINPROB
+    Full list: ./chess_trainer --help   (see howto/createAI.md for the workflow)
+
+    WINPROB=0|1 picks the output head. With a win-prob head (WINPROB=1) the
+    net ends in a TANH over tanh(cp/400), labels are bounded, and Val MSE is
+    in win-prob units (~0.01-0.05 for a good fit). With a linear head
+    (WINPROB=0, the fresh default) labels are raw centipawns and MSE is in
+    cp^2: sqrt(MSE) = RMS centipawns (e.g. 40000 -> ~200 cp RMS). See
+    howto/createAI.md "Label normalization".
+
+    (-DNDEBUG matters: it disables the Matrix bounds asserts in the hot training loops.)
+
+
+- How to compile and run the dataset-tools unit tests:
+
+-- Compile (from chess/):
+        g++ -std=c++17 -DNDEBUG -O2 test.cpp -o chess_test
+
+-- Run: ./chess_test     (must print ALL TESTS PASSED before you trust
+                         DATASET= training; covers CSV parsing, SAN replay,
+                         eval alignment, and mirror augmentation)
+
+
+- How to compile and run the self-play matchmaker (two nets vs each other):
+
+-- Compile (from chess/):
+        g++ -std=c++17 -DNDEBUG -O3 -pthread self_play.cpp -o self_play
+        g++ -std=c++17 -DNDEBUG -O3 -mavx2 -pthread self_play.cpp -o self_play
+
+-- Run:
+    NET1 plays White, NET2 plays Black; either may be the literal value "PST"
+    to use the built-in material+pst evaluator instead of a net file.
+    Search limit: DEPTH=N (fixed ply) or MOVETIME=ms (fixed time per move).
+    If both are given, the one written LATER on the command line wins.
+        ./self_play NET1=trained_networks/run_1/net.backprop_net NET2=PST DEPTH=6
+        ./self_play NET1=trained_networks/run_1/net.backprop_net ^
+                    NET2=trained_networks/run_2/net.backprop_net MOVETIME=3000
+
+    Other args: MAX_PLIES=N (safety cap, default 400). Default limit when
+    neither DEPTH nor MOVETIME is given: MOVETIME=1000.
+    THREADS=N: Lazy-SMP searchers per move around ONE match-wide shared
+    transposition table (default: CPU cores - 2, matching the UCI engine's
+    Threads). The primary runs concurrently with THREADS-1 helpers, so CPU
+    usage tracks the engine. Each helper gets its own sparse NNUEEvaluator
+    around the same shared net, so this is always safe.
+    HASH=MB: shared transposition-table size in MB (default 64).
+    QUANT=0|1: use the quantized (int16/int32, AVX2-ready) accumulator first
+    layer for the NNUE eval path (default 0 = exact float parity).
+    CONTEMPT=cp: draw-avoidance penalty in centipawns (default 50). A root
+    move that would immediately draw the game -- creating a threefold
+    repetition (3rd occurrence), the fifty-move rule, insufficient material,
+    or stalemate -- is compared as if it scored 2*cp worse, so a non-drawing
+    alternative is preferred whenever it exists and isn't clearly worse. This
+    keeps net-vs-net matches from shuffling into early threefold draws.
+    Set CONTEMPT=0 to disable.
+
+-- What it prints each turn:
+    --- White to move ---          (side to move)
+    info depth D score cp/mate ... nodes N time T pv ...   (per search
+                                                             iteration)
+    [board with last move's from/to squares tinted green/gold]
+    White net <label>: +NN cp      (both nets' White-POV evals of the board)
+    Black net <label>: +NN cp
+    position startpos moves ...    (cumulative move list, UCI-style)
+
+    When the game ends: the final board, then
+        Net <label> Won   or   Draw (<reason>)
+    followed by the full numbered move history.
+
+
+
+
+- UCI mode: it speaks the standard UCI protocol on stdin/stdout.
+    Type commands and press enter. Minimal session:
+
+$ > uci                        (engine replies id name / option / uciok)
+$ > isready                    (engine replies readyok)
+$ > position startpos moves e2e4 e7e5 g1f3 b8c6
+$ > go depth 8                 (search to depth 8, prints info lines)
+$ >                            ... engine eventually prints: bestmove g8f6
+$ > quit
+
+    Other useful go forms:  go movetime 1000   (think exactly ~1s)
+                            go wtime 300000 btime 300000   (real clocks, ms)
+    Load net at runtime:    setoption name EvalFile value path/to/net.backprop_net
+                            (engine prints "info string loaded eval: nnue-acc:...")
+    Quantize eval layers:   setoption name EvalQuant value 1  (int16/int32
+                            accumulator first layer; applies on the NEXT
+                            EvalFile load; loaded-eval line reports
+                            nnue-acc:... (quant:int16-acc|int32-acc))
+    Transposition table:    setoption name Hash value 128   (MB, default 64;
+                            stops any running search, then resizes+clears;
+                            ucinewgame also clears it)
+    Multi-thread search:    setoption name Threads value 4  (Lazy-SMP on the
+                            shared transposition table)
+    Show board + eval:      d
+    Warm-up:                each "position" command starts a SILENT
+                            single-threaded search to depth 9 that fills the
+                            shared TT, so a later "go" on that position
+                            searches much faster. No info/bestmove is printed
+                            during warm-up; "go"/"stop"/"position"/"quit"
+                            abort it cleanly.
+
+
+- What you'll see while searching:
+
+$ > info depth 7 score cp 35 nodes 15234 time 45 pv g1f3 g8f6 d2d4
+$ > bestmove g8f6
+
+    depth = ply searched | cp = centipawn eval (+ good for white)
+    nodes/time = search stats | pv = principal variation (planned line)
+
+
+- If the net fails validation on load, the engine keeps running with the
+  material+pst fallback and prints an "info string ERROR ..." line saying why
+  (usually input size != 781 -- see howto/createAI.md).

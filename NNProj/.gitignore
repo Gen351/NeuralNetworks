@@ -1,0 +1,10 @@
+dev/
+*.exe
+
+trained_networks/
+
+evolved_networks/
+
+snakes/with_gui/
+
+dataset/
